@@ -1,0 +1,54 @@
+name: Build Windows exe
+
+# 在 GitHub 的 Windows 机器上打包 exe。
+# Mac / Linux 无法交叉编译 Windows exe，所以这一步必须交给 windows-latest。
+on:
+  workflow_dispatch:          # 手动触发（API 也能触发）
+  push:
+    tags: ["v*"]              # 打 tag 时自动打包并挂到 Release
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: 取出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 安装 PyInstaller
+        working-directory: win64
+        run: python -m pip install --upgrade pip pyinstaller
+
+      - name: 打包 exe
+        working-directory: win64
+        run: >
+          python -m PyInstaller --noconfirm --clean --onefile --windowed
+          --name BatteryDoctor
+          --icon "icon.ico"
+          --add-data "icon.ico;."
+          main.py
+
+      - name: 显示产物大小
+        working-directory: win64
+        run: |
+          Get-Item dist\BatteryDoctor.exe | Format-List Name,Length,LastWriteTime
+
+      - name: 上传为构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: BatteryDoctor-Windows-exe
+          path: win64/dist/BatteryDoctor.exe
+          if-no-files-found: error
+
+      - name: 附加到 Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: win64/dist/BatteryDoctor.exe
