@@ -45,6 +45,8 @@
   nav.links a{padding:4px 0;border-bottom:1.5px solid transparent;transition:.18s}
   nav.links a:hover{color:var(--text)}
   nav.links a.on{color:var(--accent);border-bottom-color:var(--accent)}
+  .nav-gh{display:inline-flex;align-items:center;gap:6px;font-size:14px;color:var(--text2);transition:.18s}
+  .nav-gh:hover{color:var(--text)}
   .btn{
     display:inline-flex;align-items:center;justify-content:center;gap:7px;
     height:38px;padding:0 18px;border-radius:19px;font-size:14px;font-weight:600;
@@ -200,6 +202,11 @@
 
   /* download */
   .dl{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .repo-bar{display:flex;align-items:center;justify-content:space-between;gap:6px 18px;
+    flex-wrap:wrap;background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+    padding:14px 18px;margin-bottom:16px;font-size:13.5px;color:var(--text2)}
+  .repo-bar a{color:var(--accent);font-weight:600;white-space:nowrap}
+  .repo-bar a:hover{color:var(--accent2)}
   .dlcard{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:26px;
     display:flex;flex-direction:column;gap:14px}
   .dlcard .os{display:flex;align-items:center;gap:10px;font-size:15px;font-weight:650}
@@ -272,6 +279,7 @@
       <a href="#compare">对比</a>
       <a href="#faq">常见问题</a>
     </nav>
+    <a class="nav-gh" href="https://github.com/fxxqq/battery-doctor" target="_blank" rel="noopener"><svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>GitHub</a>
     <a class="btn primary" href="#download">下载</a>
   </div>
 </header>
@@ -679,6 +687,10 @@
         <h2>两个平台，同一套证据链</h2>
         <p>macOS 是免安装的 dmg，内嵌运行环境；Windows 提供源码与一键打包脚本，打包一次即可分发 exe。</p>
       </div>
+      <div class="repo-bar reveal">
+        <span>代码完全开源（MIT）：可自行编译、改功能、看每一行采样逻辑，也可以直接提 issue。</span>
+        <a href="https://github.com/fxxqq/battery-doctor" target="_blank" rel="noopener">github.com/fxxqq/battery-doctor →</a>
+      </div>
       <div class="dl">
         <div class="dlcard reveal">
           <div class="os">
@@ -748,13 +760,14 @@
   <footer>
     <div class="wrap foot">
       <div class="left">
-        <strong>电池医生</strong>　macOS 3.2 / Windows 1.0<br>
+        <strong>电池医生</strong>　macOS 3.5 / Windows 1.0<br>
         一个把「为什么关机」当成取证问题、而不是监控问题来做的小工具。<br>
         数据留在你自己的机器上。诊断结论不构成维修承诺。
       </div>
       <div style="text-align:right;line-height:2">
-        <a href="#why">为什么</a> · <a href="#how">机制</a> · <a href="#compare">对比</a> · <a href="#download">下载</a><br>
-        <span style="color:var(--faint);font-size:11.5px">© 2026　本地运行 · 无账号 · 零遥测</span>
+        <a href="#why">为什么</a> · <a href="#how">机制</a> · <a href="#compare">对比</a> · <a href="#download">下载</a> ·
+        <a href="https://github.com/fxxqq/battery-doctor" target="_blank" rel="noopener">GitHub</a><br>
+        <span style="color:var(--faint);font-size:11.5px">© 2026　本地运行 · 无账号 · 零遥测 · MIT 开源</span>
       </div>
     </div>
   </footer>
