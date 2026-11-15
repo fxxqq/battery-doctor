@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.DS_Store
+
+# 构建产物
+build/
+
+# 下载产物：用 GitHub Releases 分发，不进仓库
+downloads/
+*.dmg
+*.zip
+*.exe
