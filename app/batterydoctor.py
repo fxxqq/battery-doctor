@@ -19,10 +19,11 @@ import threading
 import time
 import tkinter as tk
 import tkinter.font as tkfont
+import urllib.request
 from tkinter import ttk, messagebox
 
 APP_NAME = "电池医生"
-VERSION = "3.5"
+VERSION = "3.6"
 
 BASE = os.path.expanduser("~/Library/Logs/PowerWatch")
 CSV = os.path.join(BASE, "power.csv")
@@ -2194,6 +2195,82 @@ def _bin(name):
     return name
 
 
+# ----------------------------------------------------------------- 检查更新
+# 全程序只有两个地方会发网络请求：网络诊断（你点才发）、检查更新（你点才发，
+# 或者你自己在弹窗里勾了「每周自动看一眼」）。除此之外一个连接都不会建。
+UPDATE_URL = "https://v5pc.com/battery/version.json"
+UPDATE_CFG = os.path.join(BASE, ".update.json")
+UPDATE_AUTO_DAYS = 7
+
+
+def ver_tuple(s):
+    """把 "3.6" / "v3.6.1" 变成可比较的元组"""
+    out = []
+    for part in re.split(r"[.\-+]", str(s).strip().lstrip("vV")):
+        out.append(to_int(part, 0))
+    while len(out) < 3:
+        out.append(0)
+    return tuple(out[:3])
+
+
+def update_cfg_read():
+    try:
+        with open(UPDATE_CFG, encoding="utf-8") as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
+def update_cfg_write(**kw):
+    d = update_cfg_read()
+    d.update(kw)
+    try:
+        os.makedirs(BASE, exist_ok=True)
+        with open(UPDATE_CFG, "w", encoding="utf-8") as f:
+            json.dump(d, f, ensure_ascii=False)
+    except Exception:
+        pass
+    return d
+
+
+def update_check(timeout=8):
+    """问一次版本清单，返回 {ok, info} 或 {ok:False, err}"""
+    try:
+        req = urllib.request.Request(UPDATE_URL, headers={
+            "User-Agent": "BatteryDoctor/%s" % VERSION,
+            "Cache-Control": "no-cache"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            data = json.loads(r.read().decode("utf-8"))
+        if not isinstance(data, dict) or not data.get("version"):
+            return {"ok": False, "err": "服务器返回的格式看不懂"}
+        data["current"] = VERSION
+        data["newer"] = ver_tuple(data["version"]) > ver_tuple(VERSION)
+        update_cfg_write(last_check=int(time.time()))
+        return {"ok": True, "info": data}
+    except Exception as e:
+        return {"ok": False, "err": "%s" % e}
+
+
+def update_download(url, out_path, progress=None, timeout=60):
+    """把 dmg 下到本地，边下边报进度（0~1）"""
+    req = urllib.request.Request(url, headers={
+        "User-Agent": "BatteryDoctor/%s" % VERSION})
+    with urllib.request.urlopen(req, timeout=timeout) as r, \
+            open(out_path, "wb") as f:
+        total = to_int(r.headers.get("Content-Length"), 0)
+        got = 0
+        while True:
+            chunk = r.read(262144)
+            if not chunk:
+                break
+            f.write(chunk)
+            got += len(chunk)
+            if progress and total:
+                progress(min(1.0, got / float(total)))
+    return out_path
+
+
 def text_to_pdf(text, out_path):
     """纯文本 → PDF（cupsfilter，已验证可嵌入 PingFang 中文字体）"""
     import tempfile
@@ -2584,12 +2661,18 @@ def clean_memo_clear():
 
 
 def _rm_path(p):
-    """删掉一个文件或整个目录，返回是否真的没了"""
+    """删掉一个文件或整个目录，返回是否真的没了
+
+    大目录交给系统 /bin/rm -rf（C 实现，比 Python 逐个 unlink 快好几倍）；
+    rm 失败或残留时再用 shutil.rmtree 兜底一次。
+    """
     try:
         if os.path.islink(p) or os.path.isfile(p):
             os.remove(p)
         else:
-            shutil.rmtree(p, ignore_errors=True)
+            run_cmd(["/bin/rm", "-rf", "--", p], timeout=3600)
+            if os.path.lexists(p):
+                shutil.rmtree(p, ignore_errors=True)
         return not os.path.lexists(p)
     except Exception:
         return False
@@ -2616,8 +2699,11 @@ def _to_trash(p):
         return False
 
 
-def clean_apply(it, dry=False):
-    """执行一项清理。返回 {freed, moved, removed, failed}（单位 KB）"""
+def clean_apply(it, dry=False, progress=None):
+    """执行一项清理。返回 {freed, moved, removed, failed}（单位 KB）
+
+    progress(path) 在每删一个目标前被调用——弹窗用它刷"已删多少项"的实时反馈。
+    """
     res = {"freed": 0, "moved": 0, "removed": 0, "failed": 0}
     mode = it.get("mode", "purge")
     days, exts = it.get("days"), it.get("exts")
@@ -2636,6 +2722,11 @@ def clean_apply(it, dry=False):
             except OSError:
                 continue
         for path, size in targets:
+            if progress:
+                try:
+                    progress(path)
+                except Exception:
+                    pass
             kb = size // 1024
             if dry:
                 ok = True
@@ -3496,15 +3587,38 @@ class CleanDialog(tk.Toplevel):
         self.btn_go.set_enabled(False)
         for b in (self.btn_safe, self.btn_none):
             b.set_enabled(False)
-        self.hint.configure(text="正在清理，不要关闭窗口…", fg=P["muted"])
+        self.hint.configure(text="正在清理，大目录（如缓存）可能要几分钟…",
+                            fg=P["muted"])
         threading.Thread(target=self._clean_worker, args=(sel,), daemon=True).start()
+
+    def _clean_text(self, done_n):
+        """清理中的实时提示：正在清理第几项、已处理多少个目标"""
+        info = getattr(self, "_clean_info", {}) or {}
+        name = info.get("name", "")
+        pos = "第 %d/%d 项" % (info.get("n", 1), info.get("total", 1)) if name else ""
+        if done_n > 0:
+            cnt = "{:,}".format(done_n) + " 个文件" if done_n < 10000 \
+                else "%.1f 万个文件" % (done_n / 10000.0)
+            return "正在清理：%s（%s）· 已处理 %s" % (name, pos, cnt)
+        return "正在清理：%s（%s），大目录要几分钟，请别关窗口" % (name, pos) if name \
+            else "正在清理，大目录（如缓存）可能要几分钟…"
 
     def _clean_worker(self, sel):
         total = len(sel) or 1
         for n, (i, it) in enumerate(sel):
-            self.q.put(("clean_start", i, None, None))
+            self.q.put(("clean_start", i,
+                        {"name": it["name"], "n": n + 1, "total": total}, None))
+            cnt = {"n": 0, "last": 0.0}
+
+            def prog(path, c=cnt):
+                c["n"] += 1
+                now = time.time()
+                if now - c["last"] >= 1.5:
+                    c["last"] = now
+                    self.q.put(("clean_tick", i, c["n"], None))
+
             try:
-                r = clean_apply(it, dry=self.dry)
+                r = clean_apply(it, dry=self.dry, progress=prog)
             except Exception as e:
                 r = {"freed": 0, "moved": 0, "removed": 0, "failed": 1,
                      "err": str(e)}
@@ -3532,6 +3646,11 @@ class CleanDialog(tk.Toplevel):
                     self._scan_finished()
                 elif kind == "clean_start":
                     self.rows[i].set_state("清理中…", P["amber"])
+                    self._clean_info = a or {}
+                    self.hint.configure(text=self._clean_text(0), fg=P["muted"])
+                elif kind == "clean_tick":
+                    self.hint.configure(text=self._clean_text(a or 0),
+                                        fg=P["muted"])
                 elif kind == "clean_row":
                     self._row_done(i, a)
                 elif kind == "clean_done":
@@ -3612,16 +3731,202 @@ class CleanDialog(tk.Toplevel):
 
     def _close(self):
         if self.cleaning:
-            messagebox.showinfo("磁盘清理",
-                                "正在清理，请等它跑完（通常十几秒）。\n"
-                                "中途关窗口看不到结果，反而不知道删了什么。")
-            return
+            if messagebox.askyesno(
+                    "磁盘清理",
+                    "清理还在进行中。\n\n现在关闭的话看不到结果，但删除不会中断，"
+                    "已完成的部分照常生效。\n\n确定要关吗？"):
+                pass
+            else:
+                return
         self._alive = False
         try:
             self.grab_release()
         except Exception:
             pass
         self.destroy()
+
+
+# ----------------------------------------------------------------- 检查更新（弹窗）
+class UpdateDialog(tk.Toplevel):
+    """手动检查更新。
+
+    设计上的取舍：不做「启动就静默连线」的自动更新——那要么偷偷联网，
+    要么在没有服务器时天天失败。这里只在两种情况下发请求：
+    你点「检查更新」，或者你自己勾了「每周自动看一眼」。
+    """
+
+    def __init__(self, app):
+        super().__init__(app.root)
+        self.app = app
+        self.title("检查更新")
+        self.configure(bg=P["card"])
+        self.transient(app.root)
+        self.resizable(False, False)
+        self.grab_set()
+        self.info = None
+        self.dl_path = None
+
+        pad = tk.Frame(self, bg=P["card"], width=520)
+        pad.pack(fill="both", expand=True, padx=24, pady=20)
+        self.pad = pad
+
+        tk.Label(pad, text="检查更新", bg=P["card"], fg=P["text"],
+                 font=(FONT, 15, "bold")).pack(anchor="w")
+
+        self.ver_lbl = tk.Label(pad, text="当前版本 v%s　·　正在连接 v5pc.com…" % VERSION,
+                                bg=P["card"], fg=P["text2"], font=(FONT, 10),
+                                justify="left", anchor="w", wraplength=470)
+        self.ver_lbl.pack(fill="x", pady=(4, 8))
+
+        self.notes = tk.Label(pad, text="", bg=P["card2"], fg=P["text2"],
+                              font=(FONT, 10), justify="left", anchor="w",
+                              wraplength=444, padx=12, pady=10)
+        self.notes.pack(fill="x")
+
+        self.bar = tk.Canvas(pad, height=4, bg=P["card"], highlightthickness=0)
+        self.bar.pack(fill="x", pady=(10, 0))
+
+        self.hint = tk.Label(pad, text="", bg=P["card"], fg=P["faint"],
+                             font=(FONT, 9), justify="left", anchor="w",
+                             wraplength=470)
+        self.hint.pack(fill="x", pady=(8, 0))
+
+        foot = tk.Frame(pad, bg=P["card"])
+        foot.pack(fill="x", pady=(14, 0))
+        self.btn_dl = RButton(foot, "下载并安装", self._download, "primary")
+        self.btn_dl.pack(side="left")
+        self.btn_dl.set_enabled(False)
+        RButton(foot, "关闭", self.destroy, "ghost").pack(side="left", padx=(8, 0))
+
+        self.auto = tk.BooleanVar(value=bool(update_cfg_read().get("auto")))
+        chk = tk.Checkbutton(
+            pad, text="每周自动检查一次（只在你勾选后才联网，关闭后一个请求都不发）",
+            variable=self.auto, command=self._toggle_auto, bg=P["card"],
+            fg=P["muted"], font=(FONT, 9), anchor="w", activebackground=P["card"],
+            selectcolor=P["card2"], highlightthickness=0, bd=0)
+        chk.pack(fill="x", pady=(10, 0))
+
+        self._check()
+
+    # ---------- 状态
+    def _set_prog(self, frac):
+        self.bar.delete("all")
+        w = max(to_int(self.bar.winfo_width()), 1)
+        self.bar.create_rectangle(0, 1, w, 3, fill=P["line2"], outline="")
+        if frac > 0:
+            self.bar.create_rectangle(0, 1, w * min(frac, 1.0), 3,
+                                      fill=P["accent"], outline="")
+
+    def _toggle_auto(self):
+        update_cfg_write(auto=bool(self.auto.get()))
+
+    def _check(self):
+        self.ver_lbl.configure(text="当前版本 v%s　·　正在连接 v5pc.com…" % VERSION)
+        self.notes.configure(text="")
+        self.hint.configure(text="", fg=P["faint"])
+
+        def work():
+            r = update_check()
+            try:
+                self.after(0, lambda: self._checked(r))
+            except Exception:
+                pass
+        threading.Thread(target=work, daemon=True).start()
+
+    def _checked(self, r):
+        if not r.get("ok"):
+            self.ver_lbl.configure(text="当前版本 v%s　·　检查失败" % VERSION)
+            self.hint.configure(
+                text="连不上更新服务器：%s\n没网、被墙或服务器维护时都会这样，"
+                     "不影响使用——直接去 v5pc.com/battery 手动下载也行。" % r.get("err", ""),
+                fg=P["amber"])
+            self.btn_dl.set_text("重试")
+            self.btn_dl.command = self._check
+            self.btn_dl.set_enabled(True)
+            return
+        info = r["info"]
+        self.info = info
+        cur, latest = info.get("current", VERSION), info.get("version", VERSION)
+        if not info.get("newer"):
+            self.ver_lbl.configure(
+                text="当前版本 v%s　·　已是最新版本" % cur)
+            self.notes.configure(text="不用更新。有新版本时这里会列出改了什么。")
+            self.hint.configure(
+                text="这个版本号来自 v5pc.com/battery/version.json。",
+                fg=P["faint"])
+            self.btn_dl.set_text("已是最新")
+            self.btn_dl.set_enabled(False)
+            return
+        notes = info.get("notes") or []
+        if isinstance(notes, str):
+            notes = [notes]
+        body = "\n".join("· " + str(n) for n in notes[:8]) or "（这次没有写更新说明）"
+        self.ver_lbl.configure(
+            text="当前版本 v%s　·　发现新版本 v%s（%s）"
+                 % (cur, latest, info.get("date", "")))
+        self.notes.configure(text="更新内容：\n" + body)
+        size = info.get("size_mb")
+        self.hint.configure(
+            text=("下载约 %s MB，下完会自动打开磁盘映像，把「电池医生」拖进"
+                  "「应用程序」覆盖旧版即可。设置和采样记录都在 "
+                  "~/Library/Logs/PowerWatch，不会被覆盖。"
+                  % (size if size else "30")),
+            fg=P["muted"])
+        self.btn_dl.set_text("下载 v%s" % latest)
+        self.btn_dl.command = self._download
+        self.btn_dl.set_enabled(True)
+
+    # ---------- 下载
+    def _download(self):
+        if not self.info or not self.info.get("newer"):
+            self._check()
+            return
+        url = self.info.get("url") or ""
+        if not url:
+            self.hint.configure(text="清单里没有下载地址，请到 v5pc.com/battery 手动下载。",
+                                fg=P["amber"])
+            return
+        ver = self.info.get("version", "new")
+        self.btn_dl.set_enabled(False)
+        self.btn_dl.set_text("下载中…")
+        self.hint.configure(text="正在下载…", fg=P["muted"])
+
+        def work():
+            dest = os.path.join(os.path.expanduser("~/Downloads"),
+                                "BatteryDoctor-%s.dmg" % ver)
+            try:
+                update_download(
+                    url, dest,
+                    progress=lambda f: self.after(0, lambda: self._set_prog(f)))
+                self.after(0, lambda: self._downloaded(dest))
+            except Exception as e:
+                self.after(0, lambda: self._dl_failed(str(e)))
+        threading.Thread(target=work, daemon=True).start()
+
+    def _downloaded(self, path):
+        self.dl_path = path
+        self._set_prog(1.0)
+        self.hint.configure(
+            text="下载完成：%s\n磁盘映像已打开，把「电池医生」拖进「应用程序」覆盖旧版，"
+                 "然后重新打开即可。" % path.replace(os.path.expanduser("~"), "~"),
+            fg=P["green"])
+        self.btn_dl.set_text("已下载")
+        try:
+            subprocess.Popen(["/usr/bin/open", path])
+        except Exception:
+            pass
+        try:
+            self.app.add_event("检查更新：已下载 v%s" % self.info.get("version", ""), "green")
+        except Exception:
+            pass
+
+    def _dl_failed(self, err):
+        self.btn_dl.set_text("重试下载")
+        self.btn_dl.command = self._download
+        self.btn_dl.set_enabled(True)
+        self.hint.configure(
+            text="下载失败：%s\n网络慢的时候常见，重试一次通常就好了；"
+                 "也可以直接到 v5pc.com/battery 下载。" % err, fg=P["amber"])
 
 
 # ----------------------------------------------------------------- 负载压降测试
@@ -3933,6 +4238,8 @@ class App:
         self.refresh()
         self.log_startup()
         self.root.after(5000, self._tick)
+        # 用户勾了「每周自动检查」才会真的联网，默认什么都不发
+        self.root.after(3000, self.update_auto_maybe)
 
         if os.environ.get("BD_SELFTEST"):
             root.after(2500, self._selftest)
@@ -4002,8 +4309,14 @@ class App:
         tk.Label(safe, text="本地运行 · 不联网\n改动前都会先问你", bg=P["sidebar"],
                  fg=P["muted"], font=(FONT, 9), justify="left",
                  wraplength=150).pack(side="left", padx=(4, 0))
-        tk.Label(foot, text="v%s" % VERSION, bg=P["sidebar"], fg=P["faint"],
-                 font=("Menlo", 8), anchor="w").pack(fill="x", pady=(8, 0))
+        vrow = tk.Frame(foot, bg=P["sidebar"])
+        vrow.pack(fill="x", pady=(8, 0))
+        tk.Label(vrow, text="v%s" % VERSION, bg=P["sidebar"], fg=P["faint"],
+                 font=("Menlo", 8), anchor="w").pack(side="left")
+        upd = tk.Label(vrow, text="检查更新", bg=P["sidebar"], fg=P["accent"],
+                       font=(FONT, 8), anchor="w", cursor="pointinghand")
+        upd.pack(side="left", padx=(8, 0))
+        upd.bind("<Button-1>", lambda e: self.open_update())
 
         self.main = tk.Frame(self.root, bg=P["bg"])
         self.main.pack(side="left", fill="both", expand=True)
@@ -5351,6 +5664,33 @@ class App:
             dlg.lift()
             return
         self._cleandlg = CleanDialog(self)
+
+    def open_update(self):
+        dlg = getattr(self, "_upddlg", None)
+        if dlg is not None and dlg.winfo_exists():
+            dlg.lift()
+            return
+        self._upddlg = UpdateDialog(self)
+
+    def update_auto_maybe(self):
+        """启动时按用户意愿看一眼新版本：默认关闭，勾了才每 7 天发一次请求。"""
+        cfg = update_cfg_read()
+        if not cfg.get("auto"):
+            return
+        if time.time() - to_int(cfg.get("last_check"), 0) < UPDATE_AUTO_DAYS * 86400:
+            return
+
+        def work():
+            r = update_check()
+            if r.get("ok") and r["info"].get("newer"):
+                v = r["info"].get("version")
+                try:
+                    self.root.after(0, lambda: notify(
+                        "电池医生有新版本 v%s" % v,
+                        "侧栏左下角「检查更新」可以看更新内容并下载"))
+                except Exception:
+                    pass
+        threading.Thread(target=work, daemon=True).start()
 
     def start_scan(self, force=False):
         if self._scan_thread and self._scan_thread.is_alive():

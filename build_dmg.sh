@@ -40,8 +40,8 @@ cat > "$CONT/Info.plist" <<'PLIST'
     <key>CFBundleName</key><string>BatteryDoctor</string>
     <key>CFBundleDisplayName</key><string>电池医生</string>
     <key>CFBundleIdentifier</key><string>com.local.batterydoctor</string>
-    <key>CFBundleVersion</key><string>3.5</string>
-    <key>CFBundleShortVersionString</key><string>3.5</string>
+    <key>CFBundleVersion</key><string>3.6</string>
+    <key>CFBundleShortVersionString</key><string>3.6</string>
     <key>CFBundleExecutable</key><string>BatteryDoctor</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
@@ -82,7 +82,7 @@ mkdir -p "$BUILD/dmgroot"
 cp -R "$APP_DIR" "$BUILD/dmgroot/"
 ln -s /Applications "$BUILD/dmgroot/Applications"
 cat > "$BUILD/dmgroot/使用说明.txt" <<'README'
-电池医生 Battery Doctor 3.5
+电池医生 Battery Doctor 3.6
 ================================
 
 安装：把 BatteryDoctor.app 拖进右边的 Applications 文件夹，
@@ -114,11 +114,11 @@ cat > "$BUILD/dmgroot/使用说明.txt" <<'README'
   bash ~/Library/Application\ Support/BatteryDoctor/system-optimize.sh --apply
 README
 hdiutil create -volname "电池医生" -srcfolder "$BUILD/dmgroot" \
-  -ov -format UDZO -o "$BUILD/dist/BatteryDoctor-3.5.dmg" >/dev/null
+  -ov -format UDZO -o "$BUILD/dist/BatteryDoctor-3.6.dmg" >/dev/null
 
 mkdir -p "$HOME/Library/Application Support/BatteryDoctor"
 cp "$ROOT/optimize.sh" "$HOME/Library/Application Support/BatteryDoctor/system-optimize.sh" 2>/dev/null || true
 
-DMG="$BUILD/dist/BatteryDoctor-3.5.dmg"
+DMG="$BUILD/dist/BatteryDoctor-3.6.dmg"
 echo ""
 echo "构建完成: $DMG ($(du -sh "$DMG" | cut -f1))"
