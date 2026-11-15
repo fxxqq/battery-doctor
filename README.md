@@ -69,7 +69,13 @@
 
 ## 快速开始
 
-**macOS**：下载 [Releases](../../releases) 里的 `BatteryDoctor-x.x.dmg`，拖进「应用程序」。未公证，首次打开需右键 → 打开。
+**macOS**：下载 [Releases](../../releases) 里的 `BatteryDoctor-x.x.dmg`，把 App 拖进「应用程序」，然后**右键点它 →「打开」**（第一次必须右键，之后可正常双击）。dmg 内附「⚠️ 先读我：如何打开」引导页。若提示「已损坏」，在终端执行：
+
+```bash
+xattr -dr com.apple.quarantine /Applications/BatteryDoctor.app
+```
+
+> 这一步源于没有购买 Apple 开发者账号做公证（$99/年）——本项目免费开源、零收入。代价只是首次多两步点击，换来的是代码全部公开可审计。
 
 **Windows**：下载 [Releases](../../releases) 里的 `BatteryDoctor.exe`，双击即用（已内嵌运行时，不需要 Python；首次运行被 SmartScreen 拦下就点「更多信息 → 仍要运行」）。
 

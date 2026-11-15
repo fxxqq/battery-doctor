@@ -69,7 +69,13 @@ To keep that true, four things were deliberately left out: silent auto-update (c
 
 ## Quick start
 
-**macOS** — download `BatteryDoctor-x.x.dmg` from [Releases](../../releases) and drag it into Applications. It is not notarized: on first launch, right-click → Open.
+**macOS** — download `BatteryDoctor-x.x.dmg` from [Releases](../../releases), drag the app into Applications, then **right-click it → Open** (the first launch must go through right-click; after that double-click works normally). The dmg includes a "Read me first" guide page. If macOS says the app "can't be opened" or "is damaged", run this in Terminal:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/BatteryDoctor.app
+```
+
+> This friction exists because Apple notarization requires a $99/year developer account, which this free, open-source, zero-revenue project doesn't have. The trade: two extra clicks on first launch, in exchange for fully auditable code.
 
 **Windows** — download `BatteryDoctor.exe` from [Releases](../../releases) and double-click it. The runtime is embedded; no Python needed. If SmartScreen blocks it, choose "More info → Run anyway".
 
