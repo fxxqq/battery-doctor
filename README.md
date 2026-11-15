@@ -2,7 +2,7 @@
 
 > 一台 2015 款 MacBook Pro，插着电用一会儿就自己关机。市面上的工具都在给读数，没人回答「关机前那一秒发生了什么」。这个软件最初是给自己做的取证工具，后来发现它对「笔记本莫名关机」这一类问题都适用。
 
-macOS 原生应用（Tkinter + 内嵌 Python 运行时，双击即用），另附 Windows 版源码。**全程本地运行，不联网**。
+**macOS 与 Windows 双平台**：macOS 是免安装 dmg（内嵌 Python 运行时），Windows 是单文件 exe，两边都不用先装 Python 或任何依赖。**全程本地运行，不联网**。
 
 ![体检概览](assets/screens/overview.png)
 
@@ -67,7 +67,9 @@ macOS 原生应用（Tkinter + 内嵌 Python 运行时，双击即用），另�
 
 ## 快速开始
 
-**macOS**：下载 [Releases](../../releases) 里的 dmg，拖进「应用程序」。未公证，首次打开需右键 → 打开。
+**macOS**：下载 [Releases](../../releases) 里的 `BatteryDoctor-x.x.dmg`，拖进「应用程序」。未公证，首次打开需右键 → 打开。
+
+**Windows**：下载 [Releases](../../releases) 里的 `BatteryDoctor.exe`，双击即用（已内嵌运行时，不需要 Python；首次运行被 SmartScreen 拦下就点「更多信息 → 仍要运行」）。
 
 **从源码运行**：
 
@@ -75,7 +77,7 @@ macOS 原生应用（Tkinter + 内嵌 Python 运行时，双击即用），另�
 python3 app/batterydoctor.py
 ```
 
-**Windows**：进 `win64/`，双击 `直接运行.bat`（需要 Python 3.9+），或双击 `一键打包.bat` 生成单文件 exe。
+**自己编译 Windows 版**：进 `win64/` 双击 `一键打包.bat`（本机需 Python 3.9+），产物在 `win64/dist/`。CI 也是同一套流程：打 `v*` tag 时 GitHub Actions 会在 Windows 机器上自动构建并挂到 Release。
 
 ## 自己打包 dmg
 
