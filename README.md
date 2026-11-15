@@ -122,6 +122,8 @@ bash tools/stats.sh 7      # 只看最近 7 个日志文件
 
 「安装」严格来说必须有客户端报到才能数准，而报到本身就是追踪——所以这里选择不数，只统计服务端已经产生的记录。
 
+服务器上另有一个每日 cron（`/etc/cron.d/battery-stats` → `tools/server_stats.py`）：把按天的下载量累积在 state 文件里（日志轮转删除后历史不丢），生成同源的 `stats.json`，官网下载区据此显示「已被下载 N 次」。前端没有第三方统计脚本，读不到就整块隐藏。
+
 ## 兼容性
 
 - macOS 11 及以上，Intel 与 Apple Silicon 均可运行

@@ -207,6 +207,10 @@
     padding:14px 18px;margin-bottom:16px;font-size:13.5px;color:var(--text2)}
   .repo-bar a{color:var(--accent);font-weight:600;white-space:nowrap}
   .repo-bar a:hover{color:var(--accent2)}
+  .dlcount{display:flex;align-items:baseline;gap:6px 16px;flex-wrap:wrap;
+    margin:-6px 0 16px;font-size:12.5px;color:var(--muted)}
+  .dlcount b{font-family:var(--mono);font-size:14px;color:var(--text);font-weight:650}
+  .dlcount span{color:var(--faint);font-size:11.5px}
   .dlcard{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:26px;
     display:flex;flex-direction:column;gap:14px}
   .dlcard .os{display:flex;align-items:center;gap:10px;font-size:15px;font-weight:650}
@@ -705,6 +709,12 @@
         <span>代码完全开源（MIT）：可自行编译、改功能、看每一行采样逻辑，也可以直接提 issue。</span>
         <a href="https://github.com/fxxqq/battery-doctor" target="_blank" rel="noopener">github.com/fxxqq/battery-doctor →</a>
       </div>
+      <div class="dlcount reveal" id="dlcount" hidden>
+        <span style="color:var(--muted)">已被下载 <b id="dl-total">—</b> 次</span>
+        <span style="color:var(--muted)">macOS <b id="dl-mac">—</b></span>
+        <span style="color:var(--muted)">Windows <b id="dl-win">—</b></span>
+        <span>口径：本服务器访问日志里的完整下载请求，不是安装数；本站没有安装任何第三方统计脚本。</span>
+      </div>
       <div class="dl">
         <div class="dlcard reveal">
           <div class="os">
@@ -774,7 +784,7 @@
   <footer>
     <div class="wrap foot">
       <div class="left">
-        <strong>电池医生</strong>　macOS 3.5 / Windows 1.0<br>
+        <strong>电池医生</strong>　macOS 3.6 / Windows 1.0<br>
         一个把「为什么关机」当成取证问题、而不是监控问题来做的小工具。<br>
         数据留在你自己的机器上。诊断结论不构成维修承诺。
       </div>
@@ -825,6 +835,23 @@
     requestAnimationFrame(function () { sync(); raf = false; });
   }, { passive: true });
   sync();
+})();
+
+// 下载计数：同源读一个静态 stats.json（服务器 cron 每天生成），
+// 没有第三方脚本、没有 cookie、没有任何身份信息。读不到就整块隐藏。
+(function () {
+  var box = document.getElementById('dlcount');
+  if (!box || !window.fetch) return;
+  fetch('stats.json', { cache: 'no-store' })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (d) {
+      if (!d || typeof d.total !== 'number') return;
+      document.getElementById('dl-total').textContent = d.total;
+      document.getElementById('dl-mac').textContent = d.mac || 0;
+      document.getElementById('dl-win').textContent = d.win || 0;
+      box.hidden = false;
+    })
+    .catch(function () { /* 拿不到就不显示，不打扰 */ });
 })();
 </script>
 </body>
