@@ -1,5 +1,7 @@
 # 电池医生 · Battery Doctor
 
+**简体中文**　·　[English](README.en.md)
+
 > 一台 2015 款 MacBook Pro，插着电用一会儿就自己关机。市面上的工具都在给读数，没人回答「关机前那一秒发生了什么」。这个软件最初是给自己做的取证工具，后来发现它对「笔记本莫名关机」这一类问题都适用。
 
 **macOS 与 Windows 双平台**：macOS 是免安装 dmg（内嵌 Python 运行时），Windows 是单文件 exe，两边都不用先装 Python 或任何依赖。**全程本地运行，不联网**。
@@ -63,7 +65,7 @@
 - 唯一会发请求的是「网络诊断」页，必须你亲手点，3 个空请求合计约 10 KB，只读 HTTP 状态码。
 - 自己验证：`lsof -i -p $(pgrep -f BatteryDoctor)` 返回空，说明它一个连接都没建立。
 
-为了做到这一点，砍掉了四样东西：自动更新、崩溃上报、账号与云同步、使用统计。
+为了做到这一点，砍掉了四样东西：静默自动更新（检查更新要你亲手点，可选开启每周一次的版本号查询）、崩溃上报、账号与云同步、使用统计。
 
 ## 快速开始
 
@@ -98,7 +100,8 @@ optimize.sh             命令行优化脚本（不启动界面）
 powerwatch.sh           纯采样守护脚本
 index.html              官网（单文件，可直接放任意静态托管）
 version.json            更新清单（检查更新读这个文件）
-tools/stats.sh          下载量统计（只读 nginx 日志，不装任何追踪代码）
+tools/stats.sh          下载量统计（本地 SSH 只读解析 nginx 日志）
+tools/server_stats.py   服务器端每日汇总（cron 调用，生成 stats.json 给官网读）
 下载产物不进仓库        见 .gitignore，用 Releases 分发
 ```
 
