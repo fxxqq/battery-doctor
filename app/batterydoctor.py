@@ -5,6 +5,7 @@
 import concurrent.futures
 import csv
 import datetime
+import glob
 import json
 import math
 import os
@@ -2528,6 +2529,14 @@ CLEAN_ITEMS = [
      "paths": ["~/Library/Containers/com.apple.mail/Data/Library/Mail Downloads"],
      "default": True,
      "desc": "打开邮件时落地的附件副本，原件仍在邮件服务器上。"},
+    {"key": "chrome_clone", "name": "Chrome 临时签名副本", "mode": "purge",
+     "risk": "safe",
+     "globs": ["/var/folders/*/*/T/com.google.Chrome.code_sign_clone",
+               "/var/folders/*/*/X/com.google.Chrome.code_sign_clone"],
+     "default": True,
+     "desc": "Chrome 每次启动都会在系统临时目录里留一份自己的完整副本，每份 1.3G，"
+             "攒几份就能吃掉 9G。退出 Chrome 再清最干净——浏览器开着时删掉也占着空间。"
+             "删了不影响 Chrome，只是下次启动会重建。"},
     {"key": "trash", "name": "废纸篓", "mode": "purge", "risk": "care",
      "paths": ["~/.Trash"], "default": False,
      "desc": "清空后无法恢复。动手前建议在访达里过一眼，确认没有误删的东西。"},
@@ -2617,7 +2626,15 @@ def clean_scan(it):
     seen = False
     denied = False
     days, exts = it.get("days"), it.get("exts")
-    for raw in it["paths"]:
+    # globs：路径带随机后缀、没法写死的那种（如 Chrome 的临时签名副本）
+    for g in it.get("globs") or []:
+        for gp in glob.glob(os.path.expanduser(g)):
+            if not os.path.isdir(gp):
+                continue
+            seen = True
+            kb += du_kb(gp)
+            files += 1
+    for raw in (it.get("paths") or []):
         p = os.path.expanduser(raw)
         if not os.path.isdir(p):
             continue
@@ -2649,7 +2666,8 @@ _CLEAN_MEMO = {}
 def clean_scan_cached(it, ttl=600):
     """同一项 10 分钟内不重复统计——清理窗口关掉再打开就不用再等一遍"""
     key = (it.get("name"), tuple(it.get("paths") or ()),
-           it.get("days"), tuple(it.get("exts") or ()))
+           it.get("days"), tuple(it.get("exts") or ()),
+           tuple(it.get("globs") or ()))
     now = time.time()
     hit = _CLEAN_MEMO.get(key)
     if hit and now - hit[0] < ttl:
@@ -2720,7 +2738,26 @@ def clean_apply(it, dry=False, progress=None):
     res = {"freed": 0, "moved": 0, "removed": 0, "failed": 0}
     mode = it.get("mode", "purge")
     days, exts = it.get("days"), it.get("exts")
-    for raw in it["paths"]:
+    for g in it.get("globs") or []:
+        for gp in glob.glob(os.path.expanduser(g)):
+            if not os.path.isdir(gp):
+                continue
+            gkb = du_kb(gp)
+            if dry:
+                ok = True
+            elif mode == "trash":
+                ok = _to_trash(gp)
+            else:
+                ok = _rm_path(gp)
+            if not ok:
+                res["failed"] += 1
+                continue
+            res["removed"] += 1
+            if mode == "trash":
+                res["moved"] += gkb
+            else:
+                res["freed"] += gkb
+    for raw in (it.get("paths") or []):
         p = os.path.expanduser(raw)
         if not os.path.isdir(p):
             continue
