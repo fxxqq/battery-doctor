@@ -2,10 +2,13 @@
 # -*- coding: utf-8 -*-
 """电池医生 Battery Doctor — Mac 电池与性能体检工具"""
 
+import concurrent.futures
 import csv
+import datetime
 import json
 import math
 import os
+import plistlib
 import queue
 import re
 import shutil
@@ -23,7 +26,7 @@ import urllib.request
 from tkinter import ttk, messagebox
 
 APP_NAME = "电池医生"
-VERSION = "3.6"
+VERSION = "3.7"
 
 BASE = os.path.expanduser("~/Library/Logs/PowerWatch")
 CSV = os.path.join(BASE, "power.csv")
@@ -2679,7 +2682,8 @@ def _rm_path(p):
 
 
 def _to_trash(p):
-    """移到废纸篓（同卷 rename，很快），重名自动加序号"""
+    """移到废纸篓（同卷 rename，很快），重名自动加序号。
+    实在移不动（权限、跨卷）就退回 Finder——Finder 放的才带「放回原处」。"""
     if not os.path.lexists(p):
         return True
     if os.path.dirname(os.path.abspath(p)) == TRASH_DIR:
@@ -2696,7 +2700,16 @@ def _to_trash(p):
         shutil.move(p, dst)
         return True
     except Exception:
+        pass
+    # 退回 Finder 试试
+    try:
+        esc = p.replace("\\", "\\\\").replace('"', '\\"')
+        subprocess.run(["/usr/bin/osascript", "-e",
+                        'tell application "Finder" to delete POSIX file "%s"' % esc],
+                       capture_output=True, timeout=20)
+    except Exception:
         return False
+    return not os.path.lexists(p)
 
 
 def clean_apply(it, dry=False, progress=None):
@@ -2755,6 +2768,250 @@ def clean_summary(res):
     if res.get("failed"):
         parts.append("%d 项被系统保护、已跳过" % res["failed"])
     return "、".join(parts) if parts else "没有需要清理的内容"
+
+# ----------------------------------------------------------------- 应用卸载
+# 只扫这几个地方。/System/Applications 里的都是系统自带，碰不得。
+APP_SCAN_DIRS = ["/Applications", os.path.expanduser("~/Applications"),
+                 os.path.expanduser("~/Desktop")]
+# 电池医生自己不进列表，免得把自己卸了
+APP_SELF_IDS = ("com.local.batterydoctor",)
+# 系统关键程序，删了系统会出问题
+APP_PROTECTED = {
+    "com.apple.Safari",
+    "com.apple.finder",
+    "com.apple.dock",
+    "com.apple.systempreferences",
+    "com.apple.loginwindow",
+    "com.apple.WindowManager",
+    "com.apple.notificationcenterui",
+    "com.apple.CoreServices",
+    "com.apple.pkg",
+}
+
+
+def _app_plist(path):
+    """读 .app 里的 Info.plist，读不到就返回空 dict"""
+    try:
+        with open(os.path.join(path, "Contents", "Info.plist"), "rb") as f:
+            d = plistlib.load(f)
+        return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
+def _dir_kb(path):
+    """目录实际占盘大小（KB）。
+    借系统的 du 来算——自己遍历要几十秒，du 快了约 80 倍。
+    du 报的是实际块数，稀疏文件不会被算成满尺寸。"""
+    try:
+        out = subprocess.run(["/usr/bin/du", "-sk", path],
+                             capture_output=True, text=True, timeout=180).stdout
+    except Exception:
+        return 0
+    out = out.strip()
+    if not out:
+        return 0
+    return to_int(out.split()[0])
+
+
+def _last_used(path):
+    """最近一次打开时间，说人话。Spotlight 没索引到就返回空串。"""
+    try:
+        out = subprocess.run(
+            ["/usr/bin/mdls", "-raw", "-name", "kMDItemLastUsedDate", path],
+            capture_output=True, text=True, timeout=10).stdout.strip()
+    except Exception:
+        return ""
+    if not out or out == "(null)":
+        return ""
+    m = re.match(r"(\d{4})-(\d{2})-(\d{2})", out)
+    if not m:
+        return ""
+    try:
+        d = datetime.date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    except Exception:
+        return ""
+    diff = (datetime.date.today() - d).days
+    if diff <= 0:
+        return "今天"
+    if diff == 1:
+        return "昨天"
+    if diff < 7:
+        return "%d 天前" % diff
+    if diff < 30:
+        return "%d 周前" % (diff // 7)
+    if diff < 365:
+        return "%d 个月前" % (diff // 30)
+    return "%d 年前" % (diff // 365)
+
+
+def _running_pids(app_path):
+    """这个应用有没有正在运行的进程"""
+    try:
+        out = subprocess.run(
+            ["/usr/bin/pgrep", "-f", os.path.join(app_path, "Contents") + "/"],
+            capture_output=True, text=True, timeout=6).stdout
+        return [x for x in out.split() if x.strip()]
+    except Exception:
+        return []
+
+
+def _leftover_candidates(meta):
+    """卸载后可能残留的目录/文件。
+    这些多半是配置和用户数据，删了找不回来，所以单独一层确认。"""
+    home = os.path.expanduser("~")
+    name = os.path.basename(meta["path"])
+    if name.endswith(".app"):
+        name = name[:-4]
+    bid = meta.get("bundle_id") or ""
+    lib = os.path.join(home, "Library")
+    out, seen = [], set()
+
+    def add(p, label):
+        p = os.path.expanduser(p)
+        if p in seen:
+            return
+        seen.add(p)
+        if os.path.lexists(p):
+            out.append((p, label))
+
+    for base, sub in (("Application Support", name), ("Application Support", bid),
+                      ("Caches", name), ("Caches", bid),
+                      ("Containers", bid), ("Group Containers", bid),
+                      ("Logs", name), ("HTTPStorages", bid), ("WebKit", bid)):
+        if sub:
+            add(os.path.join(lib, base, sub), "%s/%s" % (base, sub))
+    if bid:
+        add(os.path.join(lib, "Preferences", bid + ".plist"), "Preferences")
+    add(os.path.join(lib, "Saved Application State", name + ".savedState"),
+        "Saved Application State")
+    return out
+
+
+def _can_remove(path):
+    """能不能删——看父目录有没有写权限，不是看文件属主。
+    /Applications 是 drwxrwxr-x root admin，admin 组成员就能删掉里面的东西，
+    哪怕那个 app 本身是 root 拥有的。"""
+    try:
+        return os.access(os.path.dirname(path), os.W_OK)
+    except Exception:
+        return False
+
+
+def scan_apps():
+    """列出可卸载的应用。
+    系统自带的、删不动的、电池医生自己都不列。"""
+    out, seen = [], set()
+    for d in APP_SCAN_DIRS:
+        if not os.path.isdir(d):
+            continue
+        try:
+            names = sorted(os.listdir(d))
+        except OSError:
+            continue
+        for n in names:
+            if not n.endswith(".app"):
+                continue
+            p = os.path.join(d, n)
+            if p in seen or not os.path.isdir(p) or os.path.islink(p):
+                continue
+            seen.add(p)
+            if not _can_remove(p):
+                continue
+            info = _app_plist(p)
+            bid = info.get("CFBundleIdentifier") or ""
+            if bid in APP_SELF_IDS or bid in APP_PROTECTED:
+                continue
+            out.append({
+                "path": p,
+                "name": (info.get("CFBundleDisplayName")
+                         or info.get("CFBundleName") or n[:-4]),
+                "version": (info.get("CFBundleShortVersionString")
+                            or info.get("CFBundleVersion") or ""),
+                "bundle_id": bid,
+                "size": 0,
+                "last_used": "",
+                "running": False,
+                "leftovers": [],
+                "leftover_kb": 0,
+            })
+    return out
+
+
+def enrich_apps(apps, on_one=None):
+    """补齐大小、最后使用时间、残留清单、运行状态。
+    都是慢操作（遍历目录、问 Spotlight），放后台线程并行跑。"""
+    def work(a):
+        try:
+            a["size"] = _dir_kb(a["path"])
+        except Exception:
+            a["size"] = 0
+        try:
+            a["last_used"] = _last_used(a["path"])
+        except Exception:
+            a["last_used"] = ""
+        try:
+            a["leftovers"] = _leftover_candidates(a)
+            a["running"] = bool(_running_pids(a["path"]))
+        except Exception:
+            a["leftovers"] = []
+        if on_one:
+            try:
+                on_one(a)
+            except Exception:
+                pass
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
+            list(ex.map(work, apps))
+    except Exception:
+        for a in apps:
+            work(a)
+    return apps
+
+
+def uninstall_app(meta, with_leftovers=False, dry=False):
+    """卸载一个应用。
+    主体移到废纸篓（不是 rm，访达里能拖回去）；残留可选，默认不动。
+    返回 {moved, leftover_kb, failed, errors}，单位 KB。"""
+    res = {"moved": 0, "leftover_kb": 0, "leftover_n": 0, "failed": 0, "errors": []}
+    path = meta.get("path") or ""
+    kb = meta.get("size") or 0
+
+    if dry:
+        res["moved"] = kb
+        for p, _lab in meta.get("leftovers") or []:
+            try:
+                res["leftover_kb"] += path_size(p) // 1024
+            except Exception:
+                pass
+        res["leftover_n"] = len(meta.get("leftovers") or [])
+        return res
+
+    if os.path.lexists(path):
+        if _to_trash(path):
+            res["moved"] = kb
+        else:
+            res["failed"] += 1
+            res["errors"].append("移入废纸篓失败：%s" % os.path.basename(path))
+
+    if with_leftovers:
+        for p, label in meta.get("leftovers") or []:
+            try:
+                lkb = path_size(p) // 1024
+            except Exception:
+                lkb = 0
+            if not os.path.lexists(p):
+                continue
+            if _to_trash(p):
+                res["leftover_kb"] += lkb
+                res["leftover_n"] += 1
+            else:
+                res["failed"] += 1
+                res["errors"].append("残留没清掉：%s" % label)
+    return res
+
+
 
 
 # ----------------------------------------------------------------- 一键优化
@@ -4292,6 +4549,7 @@ class App:
         nav_items = [("overview", "体检概览"), ("battery", "电池详情"),
                      ("charge", "充电养护"), ("procs", "进程负载"),
                      ("storage", "存储空间"), ("startup", "启动项目"),
+                     ("uninstall", "应用卸载"),
                      ("network", "网络诊断"), ("trend", "趋势记录")]
         for key, title in nav_items:
             it = NavItem(self.side, title, key, self.show_page)
@@ -4329,6 +4587,7 @@ class App:
         self.pages["procs"] = tk.Frame(self.main, bg=P["bg"])
         self.pages["storage"] = tk.Frame(self.main, bg=P["bg"])
         self.pages["startup"] = tk.Frame(self.main, bg=P["bg"])
+        self.pages["uninstall"] = tk.Frame(self.main, bg=P["bg"])
         self.pages["network"] = tk.Frame(self.main, bg=P["bg"])
         self.pages["trend"] = tk.Frame(self.main, bg=P["bg"])
         self._build_overview(self.pages["overview"])
@@ -4337,6 +4596,7 @@ class App:
         self._build_procs(self.pages["procs"])
         self._build_storage(self.pages["storage"])
         self._build_startup(self.pages["startup"])
+        self._build_uninstall(self.pages["uninstall"])
         self._build_network(self.pages["network"])
         self._build_trend(self.pages["trend"])
         self._auto_wrap_pages()
@@ -4399,6 +4659,8 @@ class App:
             self.start_scan()
         elif key == "startup" and not self.startup_loaded:
             self.refresh_startup()
+        elif key == "uninstall" and not self.uninstall_loaded:
+            self.refresh_uninstall()
         elif key == "network" and not self.net_loaded:
             self.start_net_scan()
         elif key == "trend":
@@ -5657,6 +5919,316 @@ class App:
                  anchor="e").pack(side="right", padx=(8, 0))
         total = sum(r[2] for r in getattr(self, "_scan_result", [])) or 1
         self._bar(right, kb / float(total), P["accent"], 130, 6).pack(side="right")
+
+    # ---------------- 应用卸载页
+    def _build_uninstall(self, page):
+        self.uninstall_sub, self.un_btns = self._header(
+            page, "应用卸载",
+            "移到废纸篓，随时能拖回去。系统自带的东西不会出现在这里。",
+            [("scan", "重新扫描", self.refresh_uninstall, "ghost")])
+
+        wrap = tk.Frame(page, bg=P["bg"])
+        wrap.pack(fill="both", expand=True, padx=26, pady=(0, 22))
+
+        chips = tk.Frame(wrap, bg=P["bg"])
+        chips.pack(fill="x")
+        self.chip_un_apps = Chip(chips, "应用 --", fg=P["text2"], bg=P["card"],
+                                 dot=P["accent"])
+        self.chip_un_apps.pack(side="left")
+        self.chip_un_size = Chip(chips, "可释放 --", fg=P["text2"], bg=P["card"])
+        self.chip_un_size.pack(side="left", padx=8)
+        self.chip_un_state = Chip(chips, "待扫描", fg=P["text2"], bg=P["card"])
+        self.chip_un_state.pack(side="left")
+
+        lst = Card(wrap, pad=0)
+        lst.pack(fill="both", expand=True, pady=(12, 0))
+        head = tk.Frame(lst.body, bg=P["card"])
+        head.pack(fill="x", padx=16, pady=(12, 6))
+        tk.Label(head, text="应用", bg=P["card"], fg=P["muted"],
+                 font=(FONT, 10)).pack(side="left")
+        tk.Label(head, text="操作", bg=P["card"], fg=P["muted"],
+                 font=(FONT, 10)).pack(side="right", padx=(0, 4))
+        tk.Frame(lst.body, bg=P["line2"], height=1).pack(fill="x")
+
+        self.uninstall_list = RowList(lst.body, self._uninstall_row,
+                                      key_of=lambda r: r["path"],
+                                      empty="没发现可卸载的应用。")
+        self.uninstall_list.pack(fill="both", expand=True, padx=6, pady=(2, 6))
+
+        foot = tk.Frame(wrap, bg=P["bg"])
+        foot.pack(fill="x", pady=(12, 0))
+        self._un_leftover = False
+        self.un_leftover_chk = CheckBox(foot, False, bg=P["bg"],
+                                        command=self._un_toggle_leftover)
+        self.un_leftover_chk.pack(side="left", anchor="n", pady=(2, 0))
+        tk.Label(foot, text="连同残留数据一起清理（配置、缓存、登录状态——删了找不回来）",
+                 bg=P["bg"], fg=P["muted"], font=(FONT, 10)).pack(side="left", padx=(8, 0))
+        self.btn_un = RButton(foot, "卸载选中", self.uninstall_selected,
+                               "primary", height=30)
+        self.btn_un.pack(side="right")
+
+        self.uninstall_hint = tk.Label(wrap, text="", bg=P["bg"], fg=P["faint"],
+                                       font=(FONT, 10), anchor="w", justify="left",
+                                       wraplength=760)
+        self.uninstall_hint.pack(fill="x", pady=(8, 0))
+        self.uninstall_loaded = False
+        self._un_sel = set()
+        self._un_apps = []
+        self._un_total = 0
+
+    def _uninstall_row(self, row, item, idx):
+        bg = P["card"]
+        row.configure(bg=bg)
+        chk = CheckBox(row, item["path"] in self._un_sel, bg=bg,
+                       command=lambda on, p=item["path"]: self._un_toggle(p, on))
+        chk.pack(side="left", padx=(12, 10), anchor="n", pady=(12, 0))
+        item["_chk"] = chk
+
+        box = tk.Frame(row, bg=bg)
+        box.pack(side="left", fill="x", expand=True)
+        nm = item["name"]
+        if len(nm) > 46:
+            nm = nm[:45] + "…"
+        tk.Label(box, text=nm, bg=bg, fg=P["text"], font=(FONT, 11, "bold"),
+                 anchor="w").pack(anchor="w")
+        meta = tk.Frame(box, bg=bg)
+        meta.pack(anchor="w")
+        if item.get("_ready"):
+            bits = []
+            if item.get("version"):
+                bits.append("v" + item["version"])
+            bits.append(human(item.get("size") or 0))
+            if item.get("last_used"):
+                bits.append("最后使用 " + item["last_used"])
+            if item.get("leftovers"):
+                bits.append("残留 %d 项" % len(item["leftovers"]))
+            txt = " · ".join(bits)
+        else:
+            txt = "统计中…"
+        mlbl = tk.Label(meta, text=txt, bg=bg,
+                        fg=P["amber"] if item.get("running") else P["faint"],
+                        font=(FONT, 9), anchor="w")
+        mlbl.pack(anchor="w")
+        item["_meta_lbl"] = mlbl
+        short = item["path"].replace(os.path.expanduser("~"), "~")
+        tk.Label(box, text=short, bg=bg, fg=P["faint"], font=(MONO, 8),
+                 anchor="w").pack(anchor="w")
+
+        act = tk.Frame(row, bg=bg)
+        act.pack(side="right", padx=(8, 12))
+        RButton(act, "卸载", lambda: self.uninstall_one(item),
+                "ghost", height=26, size=10, padx=12).pack()
+
+    def refresh_uninstall(self):
+        if not hasattr(self, "uninstall_list"):
+            return
+        self._un_sel = set()
+        self._un_apps = []
+        self._un_total = 0
+        self._un_shown = False
+        self._un_done = False
+        self._un_stage1 = None
+        self.uninstall_list.set_items([])
+        self.chip_un_apps.set("应用 --")
+        self.chip_un_size.set("可释放 --")
+        self.chip_un_state.set("扫描中…")
+        self.btn_un.set_enabled(False)
+        self.uninstall_hint.configure(text="正在扫描已安装的应用…", fg=P["muted"])
+        self.un_btns["scan"].set_enabled(False)
+        self._un_thread = threading.Thread(target=self._un_scan_worker, daemon=True)
+        self._un_thread.start()
+        self.root.after(300, self._poll_uninstall)
+
+    def _un_scan_worker(self):
+        apps = scan_apps()
+        self._un_stage1 = apps
+        enrich_apps(apps)
+        self._un_stage1 = None
+        self._un_result = apps
+        self._un_done = True
+
+    def _poll_uninstall(self):
+        stage = getattr(self, "_un_stage1", None)
+        if stage and not getattr(self, "_un_shown", False):
+            self._un_shown = True
+            self._un_apps = stage
+            self.uninstall_list.set_items(stage)
+            self.chip_un_apps.set("应用 %d 个" % len(stage))
+            self.chip_un_state.set("统计大小中…")
+        if getattr(self, "_un_done", False):
+            self._un_done = False
+            self._un_render(getattr(self, "_un_result", []))
+            return
+        if self._un_thread and self._un_thread.is_alive():
+            self.root.after(400, self._poll_uninstall)
+        else:
+            self._un_render(getattr(self, "_un_result", []))
+
+    def _un_render(self, apps):
+        for a in apps:
+            a["_ready"] = True
+        self._un_apps = apps
+        self._un_total = sum(a.get("size") or 0 for a in apps)
+        self.uninstall_list.set_items(apps)
+        self.chip_un_apps.set("应用 %d 个" % len(apps))
+        self.chip_un_state.set("已完成")
+        self.un_btns["scan"].set_enabled(True)
+        self._un_refresh_sel()
+        running = [a["name"] for a in apps if a.get("running")]
+        text = "统计完成：%d 个应用，合计 %s。" % (len(apps), human(self._un_total))
+        if running:
+            text += " 正在运行：%s——卸载前先退出会更干净。" % "、".join(running[:3])
+        self.uninstall_hint.configure(text=text, fg=P["muted"])
+        self.uninstall_loaded = True
+
+    def _un_toggle(self, path, on):
+        if on:
+            self._un_sel.add(path)
+        else:
+            self._un_sel.discard(path)
+        # 状态可能从别处改过来的，把勾选框的显示也同步上
+        for a in self._un_apps:
+            chk = a.get("_chk")
+            if a.get("path") == path and chk is not None:
+                try:
+                    if chk.on != on:
+                        chk.set(on)
+                except Exception:
+                    pass
+                break
+        self._un_refresh_sel()
+
+    def _un_refresh_sel(self):
+        n = len(self._un_sel)
+        kb = sum(a.get("size") or 0 for a in self._un_apps
+                 if a["path"] in self._un_sel)
+        self.btn_un.set_text(("卸载选中 (%d)" % n) if n else "卸载选中")
+        self.btn_un.set_enabled(n > 0)
+        if n:
+            self.chip_un_size.set("已选 %s" % human(kb))
+        else:
+            self.chip_un_size.set("可释放 %s" % human(self._un_total))
+
+    def _un_toggle_leftover(self, on):
+        self._un_leftover = bool(on)
+        if on:
+            self.uninstall_hint.configure(
+                text="已勾选：卸载时会把配置和缓存一起移到废纸篓。这些找不回来。",
+                fg=P["amber"])
+        elif getattr(self, "_un_total", 0):
+            self.uninstall_hint.configure(
+                text="统计完成：%d 个应用，合计 %s。"
+                     % (len(self._un_apps), human(self._un_total)), fg=P["muted"])
+
+    def uninstall_one(self, app):
+        self._un_confirm([app])
+
+    def uninstall_selected(self):
+        sel = [a for a in self._un_apps if a["path"] in self._un_sel]
+        if not sel:
+            messagebox.showinfo("应用卸载",
+                                "还没勾选应用。\n\n"
+                                "点左边的方框，或者直接点某一行的「卸载」。")
+            return
+        self._un_confirm(sel)
+
+    def _un_confirm(self, apps):
+        total = sum(a.get("size") or 0 for a in apps)
+        lines = []
+        for a in apps[:12]:
+            sz = ("  %s" % human(a.get("size") or 0)) if a.get("size") else ""
+            lines.append("· %s%s" % (a["name"], sz))
+        text = "要卸载 %d 个应用，合计 %s：\n\n%s" % (
+            len(apps), human(total), "\n".join(lines))
+        if len(apps) > 12:
+            text += "\n…另外 %d 个" % (len(apps) - 12)
+        text += "\n\n它们会被移到废纸篓，在访达里还能拖回来。"
+        running = [a["name"] for a in apps if a.get("running")]
+        if running:
+            text += "\n\n注意：%s 正在运行，先退出会更干净。" % "、".join(running[:3])
+        if self._un_leftover:
+            lf = []
+            for a in apps:
+                for _p, label in (a.get("leftovers") or [])[:4]:
+                    lf.append("%s/%s" % (a["name"], label))
+            if lf:
+                text += ("\n\n连同残留一起清，这些目录会一起进废纸篓：\n"
+                         + "\n".join("  · " + x for x in lf[:10]))
+                if len(lf) > 10:
+                    text += "\n  …另外 %d 项" % (len(lf) - 10)
+                text += ("\n残留里可能有你的聊天记录、登录状态这类东西，"
+                         "删了找不回来。")
+        if not messagebox.askyesno("确认卸载", text):
+            return
+        self._un_udone = False
+        self._un_unres = []
+        self.btn_un.set_enabled(False)
+        self.uninstall_hint.configure(text="正在卸载，不要关闭窗口…", fg=P["muted"])
+        self._un_uthread = threading.Thread(target=self._un_run_worker,
+                                            args=(apps,), daemon=True)
+        self._un_uthread.start()
+        self.root.after(300, self._poll_uninstall_run)
+
+    def _un_run_worker(self, apps):
+        for a in apps:
+            try:
+                res = uninstall_app(a, with_leftovers=self._un_leftover)
+            except Exception as e:
+                res = {"moved": 0, "leftover_kb": 0, "failed": 1, "errors": [str(e)]}
+            self._un_unres.append((a, res))
+        self._un_udone = True
+
+    def _poll_uninstall_run(self):
+        for a, res in getattr(self, "_un_unres", []):
+            lbl = a.get("_meta_lbl")
+            if lbl is None or a.get("_done_marked"):
+                continue
+            try:
+                if not lbl.winfo_exists():
+                    continue
+            except Exception:
+                continue
+            a["_done_marked"] = True
+            parts = []
+            if res.get("moved"):
+                parts.append("已移到废纸篓")
+            if res.get("leftover_n"):
+                parts.append("残留 %d 项已清" % res["leftover_n"])
+            if res.get("failed"):
+                parts.append("%d 项没成功" % res["failed"])
+            lbl.configure(text=" · ".join(parts) or "已处理", fg=P["green"])
+        if getattr(self, "_un_udone", False):
+            self._un_udone = False
+            self._un_finished()
+            return
+        self.root.after(300, self._poll_uninstall_run)
+
+    def _un_finished(self):
+        results = getattr(self, "_un_unres", [])
+        moved = sum(r.get("moved") or 0 for _a, r in results)
+        lkb = sum(r.get("leftover_kb") or 0 for _a, r in results)
+        lfn = sum(r.get("leftover_n") or 0 for _a, r in results)
+        failed = sum(r.get("failed") or 0 for _a, r in results)
+        left = [a for a in self._un_apps if os.path.lexists(a["path"])]
+        self._un_apps = left
+        self._un_sel = set()
+        self._un_total = sum(a.get("size") or 0 for a in left)
+        self.uninstall_list.set_items(left)
+        self.chip_un_apps.set("应用 %d 个" % len(left))
+        self._un_refresh_sel()
+        text = "卸载完成：%s 移入废纸篓" % human(moved)
+        if lfn:
+            text += "，另清掉 %d 项残留" % lfn
+        if failed:
+            text += "，有 %d 项没成功" % failed
+        text += "。剩下的在访达废纸篓里能拖回去。"
+        self.uninstall_hint.configure(text=text, fg=P["green"])
+        # 存储页的数字过期了，让它下次进入时重新扫
+        self.storage_loaded = False
+        try:
+            self.add_event("应用卸载：%s 移入废纸篓" % human(moved), "green")
+        except Exception:
+            pass
 
     def open_clean(self):
         dlg = getattr(self, "_cleandlg", None)

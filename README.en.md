@@ -48,6 +48,7 @@ Three quiet seconds, then eight seconds at full load on four cores, sampling vol
 | Process load | Who is draining the battery, ranked by energy impact |
 | Storage | Directory sizes, low-disk warnings, disk cleanup |
 | Startup items | Login items and background agents; disabling only moves them aside |
+| App uninstall | Lists installed apps with version, size and last-used; moves them to the Trash (recoverable), optionally with leftover data |
 | Network diagnostics | Reachability / DNS / proxy check (the only place that sends a request) |
 | History | Sampling curves and runtime estimates |
 
