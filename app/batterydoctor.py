@@ -7856,9 +7856,73 @@ class App:
         self.root.destroy()
 
 
+def empty_trash_cmd():
+    """清空废纸篓。
+
+    macOS 对 ~/.Trash 有隐私保护：只有拿到「完全磁盘访问权限」的进程才读得到、
+    删得掉。电池医生如果被授权过，这条命令就能用；没授权会明确告诉用户去哪儿授权。
+    """
+    trash = os.path.expanduser("~/.Trash")
+    try:
+        items = os.listdir(trash)
+    except OSError as e:
+        print("读不到废纸篓：%s" % e)
+        print("需要给电池医生「完全磁盘访问权限」："
+              "系统设置 → 隐私与安全性 → 完全磁盘访问权限 → 把电池医生打开。")
+        return 1
+    n = 0
+    for it in items:
+        p = os.path.join(trash, it)
+        try:
+            if os.path.isdir(p) and not os.path.islink(p):
+                shutil.rmtree(p, ignore_errors=True)
+            else:
+                os.remove(p)
+            n += 1
+        except OSError:
+            pass
+    print("已清空废纸篓：%d 个条目" % n)
+    return 0
+
+
+def empty_trash_cmd():
+    """清空废纸篓。
+
+    macOS 对 ~/.Trash 有隐私保护：只有拿到「完全磁盘访问权限」的进程才读得到、
+    删得掉。电池医生如果被授权过，这条命令就能用；没授权会明确告诉用户去哪儿授权。
+    """
+    trash = os.path.expanduser("~/.Trash")
+    try:
+        items = os.listdir(trash)
+    except OSError as e:
+        print("读不到废纸篓：%s" % e)
+        print("需要给电池医生「完全磁盘访问权限」："
+              "系统设置 → 隐私与安全性 → 完全磁盘访问权限 → 把电池医生打开。")
+        return 1
+    n = 0
+    for it in items:
+        p = os.path.join(trash, it)
+        try:
+            if os.path.isdir(p) and not os.path.islink(p):
+                shutil.rmtree(p, ignore_errors=True)
+            else:
+                os.remove(p)
+            n += 1
+        except OSError:
+            pass
+    print("已清空废纸篓：%d 个条目" % n)
+    return 0
+
+
 def main():
     if "--daily" in sys.argv:
         daily_checkup()
+        return
+    if "--empty-trash" in sys.argv:
+        empty_trash_cmd()
+        return
+    if "--empty-trash" in sys.argv:
+        empty_trash_cmd()
         return
     if "--install-daily" in sys.argv:
         err = install_daily_agent()
