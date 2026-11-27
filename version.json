@@ -1,7 +1,7 @@
 {
   "version": "3.7",
   "date": "2026-11-21",
-  "url": "https://v5pc.com/battery/downloads/BatteryDoctor-3.7.dmg",
+  "url": "https://github.com/fxxqq/battery-doctor/releases/download/v3.7/BatteryDoctor-3.7.dmg",
   "size_mb": 29,
   "notes": [
     "新增应用卸载：扫出已装应用，显示版本、大小、最后使用时间，勾选后移到废纸篓（访达里能拖回去）",

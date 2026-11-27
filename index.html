@@ -273,7 +273,7 @@
         <path d="M12 3a9 9 0 0 1 8.7 6.8" stroke="#2F7D66" stroke-width="2.4" stroke-linecap="round"/>
         <circle cx="12" cy="12" r="3" fill="#2F7D66"/>
       </svg>
-      电池医生 <small>v3.6</small>
+      电池医生 <small>v3.7</small>
     </a>
     <nav class="links">
       <a href="#why">为什么</a>
@@ -301,7 +301,7 @@
           <b>电池医生每 5 秒往磁盘写一条供电数据。断电之后，它还能带你回到现场。</b>
         </p>
         <div class="hero-cta">
-          <a class="btn primary lg" href="downloads/BatteryDoctor-3.6.dmg" download>下载 macOS 版</a>
+          <a class="btn primary lg" href="https://github.com/fxxqq/battery-doctor/releases/download/v3.7/BatteryDoctor-3.7.dmg" download>下载 macOS 版</a>
           <a class="btn ghost lg" href="#download">Windows 版</a>
         </div>
         <div class="fineprint">
@@ -453,9 +453,9 @@
   <section id="features">
     <div class="wrap">
       <div class="sec-head reveal">
-        <div class="sec-kicker">六个方向</div>
+        <div class="sec-kicker">七个方向</div>
         <h2>一次体检覆盖到能动手的地方</h2>
-        <p>关机很少是单一原因。以下六项共用同一套采样与结论引擎，最后合成一句人话。</p>
+        <p>关机很少是单一原因。以下七项共用同一套采样与结论引擎，最后合成一句人话。</p>
       </div>
       <div class="feats">
         <div class="feat reveal">
@@ -484,7 +484,7 @@
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><ellipse cx="12" cy="6" rx="8" ry="3" stroke="#2F7D66" stroke-width="1.7"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6" stroke="#2F7D66" stroke-width="1.7"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" stroke="#2F7D66" stroke-width="1.7"/></svg>
           </div>
           <h3>存储与清理</h3>
-          <p>先扫出每一项占多少，勾选之后再确认一次才动手。缓存、日志、崩溃报告可以放心清；废纸篓与手机备份默认不勾，删掉的先落进废纸篓还能找回。</p>
+          <p>先扫出每一项占多少，勾选之后再确认一次才动手。缓存、日志、崩溃报告可以放心清；Chrome 每次启动留下的 1.3 GB 临时签名副本也能一次扫出来。废纸篓与手机备份默认不勾，删掉的先落进废纸篓还能找回；命令行另有 <span class="mono">--empty-trash</span> 入口，授权后可一键清空。</p>
         </div>
         <div class="feat reveal">
           <div class="ico">
@@ -492,6 +492,13 @@
           </div>
           <h3>启动项</h3>
           <p>列出开机自启的每一项，可逐条禁用并保留还原路径。开机那几分钟的满载，是最容易触发瞬时掉电的窗口。</p>
+        </div>
+        <div class="feat reveal">
+          <div class="ico">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M4 7h16M9 7V4h6v3m-9 0l1 13h10l1-13M10 11v5m4-5v5" stroke="#2F7D66" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <h3>应用卸载</h3>
+          <p>扫出 /Applications、~/Applications 和桌面上的应用，列出版本、大小、最后使用时间与残留项。勾选后移到废纸篓，访达里还能拖回去；要连同配置缓存一起清，确认框会逐条列出路径，聊天记录这类东西自己判断。</p>
         </div>
         <div class="feat reveal">
           <div class="ico">
@@ -682,6 +689,7 @@
           <tr><td>硬件限充（充电上限）</td><td class="c n">—</td><td class="c p">△ 免费版有</td><td class="c mine y">✓ 免费全功能</td></tr>
           <tr><td>一页纸送修单（含故障码）</td><td class="c n">—</td><td class="c n">—</td><td class="c mine y">✓</td></tr>
           <tr><td>进程 · 磁盘 · 启动项 · 网络</td><td class="c p">△ 分散</td><td class="c p">△ 多为专项</td><td class="c mine y">✓ 同一处</td></tr>
+          <tr><td>应用卸载（移到废纸篓可找回，残留逐条确认）</td><td class="c p">△ 手动</td><td class="c p">△ 部分套装</td><td class="c mine y">✓</td></tr>
           <tr><td>账号 / 订阅 / 云端上传</td><td class="c n">无</td><td class="c p">△ 常见</td><td class="c mine y">全无</td></tr>
           <tr><td>代码签名与公证</td><td class="c y">✓</td><td class="c y">✓</td><td class="c mine n">—</td></tr>
           <tr><td>可定制 / 能提需求</td><td class="c n">—</td><td class="c n">—</td><td class="c mine y">✓ 源码可改</td></tr>
@@ -719,13 +727,14 @@
         <div class="dlcard reveal">
           <div class="os">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M16.4 12.7c0-2 1.6-3 1.7-3.1-1-1.4-2.4-1.6-2.9-1.6-1.2-.1-2.4.7-3 .7-.6 0-1.6-.7-2.6-.7-1.3 0-2.6.8-3.3 2-1.4 2.4-.4 6 1 8 .7 1 1.4 2 2.4 1.9 1-.1 1.3-.6 2.5-.6s1.5.6 2.5.6 1.7-.9 2.3-1.9c.7-1 1-2 1-2.1-.1 0-2.1-.8-2.1-3.2z" fill="#1C1C1E"/><path d="M14.6 6.2c.5-.6.9-1.5.8-2.4-.8 0-1.7.5-2.3 1.2-.5.5-.9 1.4-.8 2.3.9.1 1.8-.5 2.3-1.1z" fill="#1C1C1E"/></svg>
-            macOS <span>3.6 · dmg 免安装</span>
+            macOS <span>3.7 · dmg 免安装</span>
           </div>
           <div class="meta">
             29 MB · dmg 免安装 · macOS 11 及以上<br>
-            内置 Python 运行时，不需要装任何依赖
+            内置 Python 运行时，不需要装任何依赖<br>
+            v3.7 新增：应用卸载页，残留清理逐条确认
           </div>
-          <a class="btn primary" href="downloads/BatteryDoctor-3.6.dmg" download>下载 dmg</a>
+          <a class="btn primary" href="https://github.com/fxxqq/battery-doctor/releases/download/v3.7/BatteryDoctor-3.7.dmg" download>下载 dmg</a>
           <div class="note">首次打开需右键 → 打开（30 秒搞定）。dmg 里放了「⚠️ 先读我：如何打开」引导页，双击即看；若提示「已损坏」，引导页里有一行命令可解。</div>
         </div>
 
@@ -738,8 +747,8 @@
             11 MB · exe · Windows 10 / 11<br>
             内置 Python 运行时，双击就用，不需要装任何东西
           </div>
-          <a class="btn primary" href="downloads/BatteryDoctor.exe" download>下载 exe</a>
-          <div class="note">想自己编译或改代码：<a href="downloads/电池医生-Windows版.zip" download>源码 zip（138 KB）</a>。首次运行若被 SmartScreen 拦下：更多信息 → 仍要运行。</div>
+          <a class="btn primary" href="https://github.com/fxxqq/battery-doctor/releases/download/v3.7/BatteryDoctor.exe" download>下载 exe</a>
+          <div class="note">想自己编译或改代码：<a href="https://github.com/fxxqq/battery-doctor/releases/download/v3.7/BatteryDoctor-Windows-1.0.zip" download>源码 zip（138 KB）</a>。首次运行若被 SmartScreen 拦下：更多信息 → 仍要运行。</div>
         </div>
       </div>
     </div>
@@ -766,12 +775,12 @@
           <p>每 5 秒一次 SMC / WMI 读取，CPU 占用可以忽略，采样文件超过 40 MB 会自动归档，最多占 40 MB 磁盘。如果你在意，可以随时暂停监控——已经落盘的记录不受影响。</p>
         </details>
         <details class="reveal">
-          <summary>macOS 版为什么有 28 MB？</summary>
+          <summary>macOS 版为什么有 29 MB？</summary>
           <p>因为它内嵌了一份 Python 运行时，换来的是「拖进应用程序就能双击打开」，不需要你装 Homebrew、pip 或任何环境。体积换省事，我认为值得。</p>
         </details>
         <details class="reveal">
-          <summary>Windows 版为什么给的是 zip 而不是 exe？</summary>
-          <p>因为 exe 只能在 Windows 上构建（PyInstaller 不支持交叉编译）。zip 里带了「一键打包.bat」，双击一次就生成单文件 exe，之后可以随便分发。需要的那台电脑装一次 Python 即可。</p>
+          <summary>Windows 版需要自己打包吗？</summary>
+          <p>不用。下载页给的是单文件 exe，内嵌 Python 运行时，双击就能用。只有想自己编译或改代码时才需要源码 zip 里的「一键打包.bat」——那台机器装一次 Python 3.9+ 即可。</p>
         </details>
         <details class="reveal">
           <summary>为什么没有代码签名？</summary>
@@ -784,7 +793,7 @@
   <footer>
     <div class="wrap foot">
       <div class="left">
-        <strong>电池医生</strong>　macOS 3.6 / Windows 1.0<br>
+        <strong>电池医生</strong>　macOS 3.7 / Windows 1.0<br>
         一个把「为什么关机」当成取证问题、而不是监控问题来做的小工具。<br>
         数据留在你自己的机器上。诊断结论不构成维修承诺。
       </div>
